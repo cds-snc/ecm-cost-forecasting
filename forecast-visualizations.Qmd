@@ -1,0 +1,60 @@
+---
+title: "ECM Monthly Costs and Forecasts"
+author:
+  - name: Colin Douglas
+    orcid: 0000-0002-6639-006X
+    email: colin.douglas@cds-snc.ca
+    affiliations:
+      - name: Canadian Digital Service
+execute:
+  echo: false
+format: 
+  html:
+    toc: true
+    embed-resources: true
+    code-fold: false
+    code-summary: "Code"
+
+---
+
+```{r Libraries}
+#| include: false
+
+library(tidyverse)
+library(lubridate)
+library(gt)
+
+```
+
+```{r Paths to data}
+#| include: false
+
+historical_costs <- read_csv("data/historical_costs.csv", show_col_types = FALSE)
+forecasts <- read_csv("data/forecasts_long.csv", show_col_types = FALSE)
+mou_values <- read_csv("data/mou_values.csv", show_col_types = FALSE)
+
+```
+
+Report generated: **`r format(Sys.Date(), "%b %d, %Y")`**
+
+# About Data
+
+Here's some words about the data.
+
+# Departments 
+```{r Procedurally generate a tab for each department, echo=FALSE, results='asis'}
+
+# Pull departments in order of most expensive to least expensive
+# Generally, folks are interested in the big ticket items, and don't want to
+# scroll all the way to the bottom.
+
+departments <- sort(unique(historical_costs$department))
+
+for (this_department in departments) {
+  
+  res <- knitr::knit_child("by-department.Qmd", quiet = TRUE)
+  cat(res, sep = "\n")
+  
+}
+```
+

@@ -1,0 +1,5 @@
+project:
+  type: default
+  post-render: 
+    - rename-report.R
+    - copy-data-output.R
