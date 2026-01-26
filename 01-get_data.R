@@ -101,5 +101,8 @@ stopifnot(nrow(mou_values) == length(unique(historical_costs$department)))
 # Write the data ----------------------------------------------------------
 
 dir.create("data", showWarnings = FALSE, recursive = TRUE)
-write_excel_csv(historical_costs, file = "data/historical_costs.csv")
-write_excel_csv(mou_values, file = "data/mou_values.csv")
+
+write_excel_csv(historical_costs, file = format(Sys.Date(), "data/%Y%m-historical_costs.csv"))
+write_excel_csv(mou_values,       file = format(Sys.Date(), "data/%Y%m-mou_values.csv"))
+write_excel_csv(historical_costs, file = "data/historical_costs.csv") 
+write_excel_csv(mou_values,       file = "data/mou_values.csv")

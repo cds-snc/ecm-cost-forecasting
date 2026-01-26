@@ -95,11 +95,14 @@ mou_exceed <- costs_forecastacutal %>%
 # The fill written at the end of the chunk is what gets cut and paste into
 # the hidden `forecasts_raw` tab in the forecasting spreadsheet.
 
-costs_forecastacutal %>%
+output <- costs_forecastacutal %>%
   pivot_wider(
     id_cols = department,
     names_from = month,
     values_from = cost
   ) %>%
-  left_join(mou_exceed, by = "department") %>% 
-  write_excel_csv("output/forecasts_wide.csv", na = "")
+  left_join(mou_exceed, by = "department")
+
+
+write_excel_csv(output, format(Sys.Date(), "output/%Y%m-forecasts_wide.csv"), na = "")
+write_excel_csv(output, "output/forecasts_wide.csv", na = "")
