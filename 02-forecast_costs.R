@@ -1,31 +1,53 @@
+# This script forecasts future monthly costs to ECM partner departments. It 
+# reads  historical costs from the ECM `VendorData` database, from the table
+# `costs_historical`. It then performs simple ARIMA model selection and
+# forecasts 12 months into the future.
+
+# After forecasting, the resulting forecasts are written to the `costs_forecast`
+# table in the VendorData database. These forecasts are used in the Financial
+# Report.
+
+# In order to access the VendorData database, you must be connected to the 
+# ESDC VPN.
+
 library(tidyverse)
 library(fable)
 library(feasts)
+library(DBI)
 source("useful-functions.R")
+
+
+# Database parameters -----------------------------------------------------
+
+# This is the path to the ECM reporting database. In order to connect to this
+# database, you must be connected to the ESDC VPN. You must also set the
+# username/password secrets ahead of time. Manage your secrets with:
+
+# keyring::key_set("ECM-DB-WRITE-USER")  # Enter the DB username
+# keyring::key_set("ECM-DB-WRITE-PASS")  # Enter the DB password
+
+con <- dbConnect(
+  odbc::odbc(),
+  Driver = "SQL Server",
+  Server = "MLCNESD4150.hrdc-drhc.net\\MLDB16SA01",
+  Database = "VendorData",
+  UID = keyring::key_get("ECM-DB-ADMIN-USER"),
+  PWD = keyring::key_get("ECM-DB-ADMIN-PASS"),
+)
 
 # Read in data ------------------------------------------------------------
 
-# These datasets are created by the script `01-get_data.R`, which should exist
-# in the same folder.
+# This is the historical cost data, directly from the database
+# We write these data earlier in the script `01-get_and_write_costs.R`
+historical_costs <- dbReadTable(con, "costs_historical")
 
-historical_costs <- read_csv("data/historical_costs.csv", show_col_types = FALSE)
-mou_values <- read_csv("data/mou_values.csv", show_col_types = FALSE)
-
-# Let's keep track of the values that are ACTUALS, not FORECASTS
-historical_costs$is_forecast <- FALSE
-
-# The fiscal year of the most recent date in the historical data
-max_fy <- historical_costs %>%
-  filter(date == max(date)) %>%
-  pull(fy) %>%
-  first()
 
 # Forecasts ---------------------------------------------------------------
 
 # Convert to a time series table for easier forecasting
 hc_tsb <- historical_costs %>%
   mutate(ym = yearmonth(date)) %>%
-  as_tsibble(index = ym, key = department)
+  as_tsibble(index = ym, key = gcid_fk)
 
 # A straightforward ARIMA, using the default parameters for model selection
 hc_model <- model(hc_tsb, ARIMA(cost))
@@ -33,6 +55,7 @@ hc_model <- model(hc_tsb, ARIMA(cost))
 # Using that model, forecast ahead a full year
 # We will eventually drop the points beyond the end of the current fiscal year
 hc_forecast <- forecast(hc_model, h = 12)
+
 
 # Convert back to a regular tibble so it behaves as we expect on joins and binds
 hc_forecast_clean <- as_tibble(hc_forecast) %>%
@@ -46,63 +69,91 @@ hc_forecast_clean <- as_tibble(hc_forecast) %>%
     is_forecast = TRUE
   ) %>%
   select(
-    department, 
+    gcid_fk,
     date,
     fy,
     cost = .mean, 
     starts_with("upper"),
-    starts_with("lower"),
-    is_forecast
-    )
-
-# We also write the forecasts in a convenient, long format
-# This is used in the Quarto document (.Qmd) file that helps
-# visualize the forecasts.
-
-write_excel_csv(hc_forecast_clean, "data/forecasts_long.csv")
-
-# Estimate when each department surpasses the MOU estimate ----------------
-
-costs_forecastacutal <- bind_rows(
-  historical_costs,
-  hc_forecast_clean
-) %>%
-  mutate(
-    fy = to_fy(date),
-    month = month(date, label = TRUE)
-  ) %>%
-  filter(fy == max_fy) %>%
-  select(department, date, month, cost)
+    starts_with("lower")
+  ) 
 
 
-# We use simple cumulative sums to estimate when
-mou_exceed <- costs_forecastacutal %>%
-  left_join(mou_values, by = "department") %>% 
-  arrange(department, date) %>% 
-  group_by(department) %>%
-  mutate(
-    cum_cost = cumsum(cost),
-    over_mou = cum_cost > mou
-  ) %>%
-  filter(over_mou) %>%
-  summarize(mou_over_month = format(first(date), "%b %Y"))
+# Write to the database ---------------------------------------------------
+
+if (!DBI::dbExistsTable(con, "costs_forecast")) {
+  # To create tables, you must be logged in as the admin user
+  # The read/write user does not have sufficient privileges
+  DBI::dbExecute(con, 
+                 "               
+    CREATE TABLE dbo.costs_forecast (
+        id                          INT IDENTITY(1,1) NOT NULL,
+        gcid_fk                     INT               NOT NULL,
+        forecasted_on               DATE              NOT NULL,
+        forecast_date               DATE              NOT NULL,
+        forecasted_cost             DECIMAL(19,4)     NOT NULL,
+        forecasted_cost_lower_95    DECIMAL(19,4)     NOT NULL,
+        forecasted_cost_lower_80    DECIMAL(19,4)     NOT NULL,
+        forecasted_cost_upper_80    DECIMAL(19,4)     NOT NULL,
+        forecasted_cost_upper_95    DECIMAL(19,4)     NOT NULL,
+        CONSTRAINT PK_costs_forecast PRIMARY KEY CLUSTERED (id),
+        CONSTRAINT FK_costs_forecast_gc_departments
+        FOREIGN KEY (gcid_fk)
+        REFERENCES dbo.gc_departments (id)
+    );
+    "         
+  )
+}
+
+# We want to upsert the new forecasts - that means overwriting old forecasts
+# if we've already made forecasts for this month
+
+# Get the most recent value in the table - we only want to add new rows
+# We don't want to modify old rows
+most_recent_forecasted_on <- tbl(con, "costs_forecast") %>%
+  filter(forecasted_on == max(forecasted_on, na.rm = TRUE)) %>%
+  select(forecasted_on) %>%
+  collect() %>%
+  pull(1) %>%
+  unique() 
+
+# If there is no recent data in the database, use a date far in the past
+most_recent_forecasted_on <- max(c(
+  as_date(most_recent_forecasted_on),
+  as_date("1970-01-01")
+))
 
 
-# Create output table -----------------------------------------------------
+to_append <- hc_forecast_clean %>%
+  mutate(forecasted_on = min(date) - months(1)) %>%
+  filter(forecasted_on > most_recent_forecasted_on) %>%
+  select(
+    gcid_fk,
+    forecasted_on,
+    forecast_date = date,
+    forecasted_cost = cost,
+    forecasted_cost_lower_95 = lower_95,
+    forecasted_cost_lower_80 = lower_80,
+    forecasted_cost_upper_80 = upper_80,
+    forecasted_cost_upper_95 = upper_95
+  ) 
 
-# This takes the historical data and the forecast data for the fiscal year
-# and combines them together in a WIDE format that plays nicely in Excel.
-# The fill written at the end of the chunk is what gets cut and paste into
-# the hidden `forecasts_raw` tab in the forecasting spreadsheet.
+# Do some sanity checks here
+stopifnot(nrow(to_append) > 0)
 
-output <- costs_forecastacutal %>%
-  pivot_wider(
-    id_cols = department,
-    names_from = month,
-    values_from = cost
-  ) %>%
-  left_join(mou_exceed, by = "department")
+# All of the forecast costs should be numeric and finite
+stopifnot(all(is.finite(c(
+  to_append$forecasted_cost,
+  to_append$forecasted_cost_lower_95,
+  to_append$forecasted_cost_lower_80,
+  to_append$forecasted_cost_upper_80,
+  to_append$forecasted_cost_upper_95
+))))
+
+# We shouldn't be writing data older than 65 days
+stopifnot(abs(as.numeric(today() - most_recent_forecasted_on)) < 65)  
 
 
-write_excel_csv(output, format(Sys.Date(), "output/%Y%m-forecasts_wide.csv"), na = "")
-write_excel_csv(output, "output/forecasts_wide.csv", na = "")
+# If we pass all of the sanity checks, write to the table
+DBI::dbAppendTable(con, "costs_forecast", value = to_append)
+
+message("All done")
