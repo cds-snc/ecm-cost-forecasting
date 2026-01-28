@@ -23,14 +23,43 @@ format:
 library(tidyverse)
 library(lubridate)
 library(gt)
+library(DBI)
+source("useful-functions.R")
 
 ```
 
 ```{r Paths to data}
 #| include: false
 
-historical_costs <- read_csv("data/historical_costs.csv", show_col_types = FALSE)
-forecasts <- read_csv("data/forecasts_long.csv", show_col_types = FALSE)
+# Database parameters -----------------------------------------------------
+
+# This is the path to the ECM reporting database. In order to connect to this
+# database, you must be connected to the ESDC VPN. You must also set the
+# username/password secrets ahead of time. Manage your secrets with:
+
+# keyring::key_set("ECM-DB-WRITE-USER")  # Enter the DB username
+# keyring::key_set("ECM-DB-WRITE-PASS")  # Enter the DB password
+
+con <- dbConnect(
+  odbc::odbc(),
+  Driver = "SQL Server",
+  Server = "MLCNESD4150.hrdc-drhc.net\\MLDB16SA01",
+  Database = "VendorData",
+  UID = keyring::key_get("ECM-DB-ADMIN-USER"),
+  PWD = keyring::key_get("ECM-DB-ADMIN-PASS"),
+)
+
+gc_departments <- DBI::dbReadTable(con, "gc_departments") %>%
+  mutate(department = paste0(acronym_en, " / ", acronym_fr)) %>%
+  select(gcid_fk = id, department)
+
+historical_costs <- dbReadTable(con, "costs_historical") %>%
+  left_join(gc_departments, by = "gcid_fk")
+
+forecasts <- dbReadTable(con, "costs_forecast") %>%
+  left_join(gc_departments, by = "gcid_fk")
+
+
 mou_values <- read_csv("data/mou_values.csv", show_col_types = FALSE)
 
 ```

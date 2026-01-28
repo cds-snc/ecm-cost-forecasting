@@ -9,12 +9,25 @@ these_historical_costs <- historical_costs %>%
   mutate(is_forecast = FALSE)
 
 these_forecasted_costs <- forecasts %>%
-  filter(department == this_department)
+  filter(
+    department == this_department,
+    forecasted_on == max(forecasted_on)
+    ) %>%
+  mutate(is_forecast = TRUE) %>%
+  rename(
+    date = forecast_date,
+    cost = forecasted_cost
+  )
 
 these_costs <- bind_rows(
   these_historical_costs,
   these_forecasted_costs
-)
+) %>%
+  mutate(
+    date = as_date(date),
+    fy = to_fy(date)
+    ) %>%
+  filter(fy %in% to_fy(today() + years(c(-1, 0, 1))))
 
 ```
 
@@ -34,11 +47,11 @@ these_costs %>%
     name = ""
   ) +
   geom_ribbon(
-    aes(ymin = lower_80, ymax = upper_80),
+    aes(ymin = forecasted_cost_lower_80, ymax = forecasted_cost_upper_80),
     alpha = 0.1
   ) +
   geom_ribbon(
-    aes(ymin = lower_95, ymax = upper_95),
+    aes(ymin = forecasted_cost_lower_95, ymax = forecasted_cost_upper_95),
     alpha = 0.1
   ) +
   scale_x_date(name = "") +
@@ -98,7 +111,7 @@ if (this_department %in% c("CRA / ARC", "ESDC / EDSC")) {
       labels = scales::dollar
     ) +
     scale_linetype_manual(
-      values = c(1, 3),
+      values = c(1, 2),
       name = "",
       labels = c("Historical", "Forecasted")
     ) +
