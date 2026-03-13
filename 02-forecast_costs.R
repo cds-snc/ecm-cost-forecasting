@@ -31,8 +31,8 @@ con <- dbConnect(
   Driver = "SQL Server",
   Server = "MLCNESD4150.hrdc-drhc.net\\MLDB16SA01",
   Database = "VendorData",
-  UID = keyring::key_get("ECM-DB-ADMIN-USER"),
-  PWD = keyring::key_get("ECM-DB-ADMIN-PASS"),
+  UID = keyring::key_get("ECM-DB-WRITE-USER"),
+  PWD = keyring::key_get("ECM-DB-WRITE-PASS"),
 )
 
 # Read in data ------------------------------------------------------------
@@ -135,7 +135,14 @@ to_append <- hc_forecast_clean %>%
     forecasted_cost_lower_80 = lower_80,
     forecasted_cost_upper_80 = upper_80,
     forecasted_cost_upper_95 = upper_95
-  ) 
+  ) %>%
+  # Replace unforecast-able scenarios with zeros and Infs with very high values
+  mutate(
+    across(starts_with("forecasted_cost"), ~ ifelse(is.na(.), 0, .)),  # Replace unforecastable values with zero
+    # If we can't calculate confidence intervals, replace with the estimate
+    across(starts_with("forecasted_cost_upper"), ~ ifelse(. == +Inf, forecasted_cost, .)),
+    across(starts_with("forecasted_cost_lower"), ~ ifelse(. == -Inf, forecasted_cost, .))
+    )
 
 # Do some sanity checks here
 stopifnot(nrow(to_append) > 0)

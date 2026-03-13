@@ -34,8 +34,8 @@ con <- dbConnect(
   Driver = "SQL Server",
   Server = "MLCNESD4150.hrdc-drhc.net\\MLDB16SA01",
   Database = "VendorData",
-  UID = keyring::key_get("ECM-DB-WRITE-USER"),
-  PWD = keyring::key_get("ECM-DB-WRITE-PASS"),
+  UID = keyring::key_get("ECM-DB-ADMIN-USER"),
+  PWD = keyring::key_get("ECM-DB-ADMIN-PASS"),
 )
 
 
@@ -71,8 +71,10 @@ stopifnot(file.exists(most_recent_report_path))
 # We have to infer the year for the dates in the spreadsheet, because they
 # are not explicitly recorded. We will do that based on the filename
 # This is the FIRST YEAR in the fiscal year span (i.e., 2025 for FY25-26)
-spreadsheet_year <- str_extract(basename(most_recent_report_path), "^\\d{4}")
-spreadsheet_year <- as.numeric(spreadsheet_year)
+spreadsheet_date <- str_extract(basename(most_recent_report_path), "^\\d{4}\\-\\d{2}")
+spreadsheet_month <- as.numeric(str_extract(spreadsheet_date, "\\d{2}$"))
+spreadsheet_year <- as.numeric(str_extract(spreadsheet_date, "^\\d{4}")) - (spreadsheet_month <= 3)  # Account for FY
+
 
 # This is the Excel range of the data on the "Historical" tab of the spread
 # that contains the cost charged to each department every month. It assumes
@@ -233,18 +235,21 @@ most_recent <- max(c(
 # Create the rows that we are going to append to the end of the table
 to_append <- historical_costs_final %>%
   left_join(gc_departments, by = c("department" = "acronym")) %>%
-  filter(date > most_recent) %>%
   select(
     gcid_fk = id,
     date,
     cost
   ) %>%
-  arrange(date, gcid_fk)
+  arrange(date, gcid_fk) %>%
+  replace_na(list(costs = 0))
+
+to_append <- filter(to_append, date > most_recent)
 
 # Do some sanity checks here
 stopifnot(nrow(to_append) > 0)
 stopifnot(all(is.numeric(to_append$cost)))
-stopifnot(abs(as.numeric(today() - most_recent)) < 65)  # We shouldn't be writing data older than 65 days
+stopifnot(abs(as.numeric(today() - most_recent)) < 95)  # We shouldn't be writing data older than 95 days
+stopifnot(max(to_append$date) < today())  # Shouldn't be writing future data
 
 # If we pass all of the sanity checks, write to the table
 DBI::dbAppendTable(con, "costs_historical", value = to_append)
