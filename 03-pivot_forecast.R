@@ -25,8 +25,8 @@ con <- dbConnect(
   Driver = "SQL Server",
   Server = "MLCNESD4150.hrdc-drhc.net\\MLDB16SA01",
   Database = "VendorData",
-  UID = keyring::key_get("ECM-DB-ADMIN-USER"),
-  PWD = keyring::key_get("ECM-DB-ADMIN-PASS"),
+  UID = keyring::key_get("ECM-DB-WRITE-USER"),
+  PWD = keyring::key_get("ECM-DB-WRITE-PASS"),
 )
 
 # Read in data ------------------------------------------------------------
@@ -72,9 +72,9 @@ mou_exceed <- combined_costs %>%
   mutate(
     cum_cost = cumsum(cost),
     over_mou = cum_cost > mou
-  ) %>%
-  filter(over_mou) %>%
-  summarize(mou_over_month = format(first(date), "%b %Y"))
+  ) %>% 
+  filter(over_mou) %>% 
+  summarize(mou_over_month = format(first(date), "%b %d %Y"))
 
 
 # Create output table -----------------------------------------------------
@@ -99,68 +99,3 @@ output <- combined_costs %>%
 write_excel_csv(output, format(Sys.Date(), "output/%Y%m-forecasts_wide.csv"), na = "")
 write_excel_csv(output, "output/forecasts_wide.csv", na = "")
 
-
-
-# Write to the database ---------------------------------------------------
-
-if (!DBI::dbExistsTable(con, "costs_forecast")) {
-  # To create tables, you must be logged in as the admin user
-  # The read/write user does not have sufficient privileges
-  DBI::dbExecute(con, 
-    "               
-    CREATE TABLE dbo.costs_forecast (
-        id                          INT IDENTITY(1,1) NOT NULL,
-        gcid_fk                     INT               NOT NULL,
-        forecasted_on               DATE              NOT NULL,
-        forecast_date               DATE              NOT NULL,
-        forecasted_cost             DECIMAL(19,4)     NOT NULL,
-        forecasted_cost_lower_95    DECIMAL(19,4)     NOT NULL,
-        forecasted_cost_lower_80    DECIMAL(19,4)     NOT NULL,
-        forecasted_cost_upper_80    DECIMAL(19,4)     NOT NULL,
-        forecasted_cost_upper_95    DECIMAL(19,4)     NOT NULL,
-        CONSTRAINT PK_costs_forecast PRIMARY KEY CLUSTERED (id),
-        CONSTRAINT FK_costs_forecast_gc_departments
-        FOREIGN KEY (gcid_fk)
-        REFERENCES dbo.gc_departments (id)
-    );
-    "         
-  )
-}
-
-# We want to upsert the new forecasts - that means overwriting old forecasts
-# if we've already made forecasts for this month
-
-# Get the most recent value in the table - we only want to add new rows
-# We don't want to modify old rows
-most_recent <- tbl(con, "costs_forecast") %>%
-  filter(forecast_date == max(forecast_date, na.rm = TRUE)) %>%
-  select(forecast_date) %>%
-  collect() %>%
-  pull(1) %>%
-  unique() 
-
-# If there is no recent data in the database, use a date far in the past
-most_recent <- max(c(
-  as_date(most_recent),
-  as_date("1970-01-01")
-))
-
-
-to_append <- hc_forecast_clean %>%
-  filter(date > most_recent) %>%
-  mutate(
-    forecasted_on = min(date) - months(1)
-  ) %>%
-  select(
-    gcid_fk = id,
-    forecasted_on,
-    forecast_date = date,
-    forecasted_cost = cost,
-    forecasted_cost_lower_95 = lower_95,
-    forecasted_cost_lower_80 = lower_80,
-    forecasted_cost_upper_80 = upper_80,
-    forecasted_cost_upper_95 = upper_95
-  ) 
-
-# If we pass all of the sanity checks, write to the table
-DBI::dbAppendTable(con, "costs_forecast", value = to_append)
