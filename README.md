@@ -8,7 +8,7 @@ budget.
 
 # Data and Outputs
 The cost data is not included in this repository. It is written to an on-prem
-SQL Server database, accessible when connected to the ESDC database.
+SQL Server database, accessible when connected to the ESDC VPN.
 
 
 
