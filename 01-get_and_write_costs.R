@@ -34,8 +34,8 @@ con <- dbConnect(
   Driver = "SQL Server",
   Server = "MLCNESD4150.hrdc-drhc.net\\MLDB16SA01",
   Database = "VendorData",
-  UID = keyring::key_get("ECM-DB-ADMIN-USER"),
-  PWD = keyring::key_get("ECM-DB-ADMIN-PASS"),
+  UID = keyring::key_get("ECM-DB-WRITE-USER"),
+  PWD = keyring::key_get("ECM-DB-WRITE-PASS"),
 )
 
 
