@@ -11,3 +11,4 @@ forecast.R
 twilio-costs.R
 old
 *.csv
+.Rprofile
