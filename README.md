@@ -6,21 +6,8 @@ historical costs to create forecasts of future costs, that can be compared
 against MOU estimates to gauge whether a partner is at risk of exceeding their
 budget.
 
-# Data and Outputs
-The cost data is not included in this repository. It is written to an on-prem
-SQL Server database, accessible when connected to the ESDC VPN.
+It works in conjunction with [this spreadsheet](https://014gc.sharepoint.com/:x:/s/CDS-Migration-Take3/IQBpYMgrvABhSIWAEzHzUOIOARrWvxhZqq_l9yfcYhplkz8?e=H0xPnN).
 
-
-
-## Analysis Examples
-
-*Note: These are _examples_ of the analysis in this repository.*
-
-### Cost Forecasts
-![A example of the historical and forecasted monthly costs for CRA](images/cra-forecast.png)
-
-### Year-over-year Comparisons
-![A example of the year-over-year monthly costs for CRA](images/cra-forecast-seasonal.png)
 
 
 
