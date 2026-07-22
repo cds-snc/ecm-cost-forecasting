@@ -1,5 +1,4 @@
-install.packages("renv")
-
+library(lubridate)
 
 # Constants ---------------------------------------------------------------
 
@@ -21,7 +20,7 @@ ignored_gcids <- c(
 
 if (!exists("vendor_data")) {
   
-  vendor_data <- dbConnect(
+  vendor_data <- DBI::dbConnect(
     odbc::odbc(),
     Driver = "SQL Server",
     Server = "MLCNESD4150.hrdc-drhc.net\\MLDB16SA01",
@@ -38,9 +37,12 @@ if (!exists("vendor_data")) {
 
 # The last FY is the last COMPLETE fiscal year
 last_fy <- list()
-last_fy[["start"]] <- make_date(year(today()) - if_else(month(today()) >= 4, 1, 2), 4, 1)
+last_fy[["start"]] <- make_date(
+  year = year(today()) - ifelse(month(today()) >= 4, 1, 2), 
+  month = 4, 
+  day = 1)
 last_fy[["end"]] <- last_fy[[1]] + years(1) - days(1)
 last_fy_str <- paste0(format(last_fy[["start"]], "%Y"), "-", format(last_fy[["end"]], "%y"))
 
-current_fy <- map(last_fy, ~ . + years(1))
+current_fy <- purrr::map(last_fy, ~ . + years(1))
 current_fy_str <- paste0(format(current_fy[["start"]], "%Y"), "-", format(current_fy[["end"]], "%y"))
