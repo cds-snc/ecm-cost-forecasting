@@ -12,3 +12,4 @@ twilio-costs.R
 old
 *.csv
 .Rprofile
+adhoc*
