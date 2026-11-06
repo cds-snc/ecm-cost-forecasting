@@ -13,3 +13,5 @@ old
 *.csv
 .Rprofile
 adhoc*
+.env
+output/
